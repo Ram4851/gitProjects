@@ -3,12 +3,34 @@ import requests
 import time
 import tkinter as tk
 from tkinter import filedialog, scrolledtext
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+# The folder to monitor for new files. Change this path as needed.
+FOLDER_TO_WATCH = "C:\\Users\\elara\\Downloads"
 
 # --- API Configuration ---
 API_KEY = "ced633a1466e43fb91f5fde8e1990b0c51c2db59c89c815397a54d462049afce"
 VT_BASE_URL = "https://www.virustotal.com/api/v3"
 
-# --- Upload File to VirusTotal ---
+# --- File Event Handler ---
+class MyHandler(FileSystemEventHandler):
+    """
+    Handles file system events.
+    """
+    def on_created(self, event):
+        """
+        Triggered when a new file or directory is created.
+        We only want to process new files, not directories.
+        """
+        if not event.is_directory:
+            path = event.src_path
+            print(f"New file detected: {path}")
+            # Most importantly, we wait a bit to ensure the file is fully written before analyzing. either way, it would result in an error.
+            time.sleep(3)  # Wait a bit to ensure the file is fully written
+            analyze_path(path)
+
+# --- VirusTotal API Functions ---
 def upload_file_to_virustotal(filepath):
     """
     Sends the file to VirusTotal and returns an analysis ID to check results later.
@@ -36,7 +58,6 @@ def upload_file_to_virustotal(filepath):
         output_box.see(tk.END)
         return None
 
-# --- Get Analysis Results ---
 def get_analysis_report(analysis_id):
     """
     Keeps checking the report status until it's ready, then shows the result.
@@ -52,9 +73,9 @@ def get_analysis_report(analysis_id):
 
             if status == "completed":
                 stats = data["data"]["attributes"]["stats"]
-                output_box.insert(tk.END, f"  Malicious:  {stats['malicious']}\n")
+                output_box.insert(tk.END, f"  Malicious:   {stats['malicious']}\n")
                 output_box.insert(tk.END, f"  Suspicious: {stats['suspicious']}\n")
-                output_box.insert(tk.END, f"  Harmless:   {stats['harmless']}\n\n")
+                output_box.insert(tk.END, f"  Harmless:    {stats['harmless']}\n\n")
                 output_box.see(tk.END)
                 break
             else:
@@ -68,7 +89,7 @@ def get_analysis_report(analysis_id):
             output_box.see(tk.END)
             break
 
-# --- Handle File or Folder ---
+# --- Analyze Path (File or Folder) ---
 def analyze_path(path):
     """
     Checks if path is a file or folder and analyzes accordingly.
@@ -97,6 +118,7 @@ def analyze_folder(folderpath):
     """
     output_box.insert(tk.END, f"\nScanning folder: {folderpath}\n")
     output_box.see(tk.END)
+    # os.walk() iterates through all subdirectories and files
     for root_dir, _, files in os.walk(folderpath):
         for file in files:
             file_path = os.path.join(root_dir, file)
@@ -143,10 +165,27 @@ def setup_gui():
 # --- Run the App ---
 def main():
     """
-    Starts the GUI app.
+    Main function to set up the GUI and start the file system observer.
     """
     setup_gui()
-    root.mainloop()
+
+    observer = Observer()
+    event_handler = MyHandler()
+    observer.schedule(event_handler, FOLDER_TO_WATCH, recursive=False)
+    observer.start()
+
+    # Log to the GUI instead of the console
+    output_box.insert(tk.END, f"Watching folder: {FOLDER_TO_WATCH}...\n")
+    output_box.see(tk.END)
+
+    try:
+        # Start the GUI's main loop, which also keeps the program running.
+        # This replaces the need for a manual 'while True' loop.
+        root.mainloop()
+    finally:
+        # Stop the observer gracefully when the program exits.
+        observer.stop()
+        observer.join()
 
 if __name__ == "__main__":
     main()
